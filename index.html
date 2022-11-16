@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SSE</title>
+</head>
+<body>
+<div>hello!</div>
+    <script>
+
+            const sse = () => {
+                console.log('starting sse');
+                const conn = new EventSource("http://localhost:9000/sse");
+                conn.addEventListener('open', () => {
+                    console.log('see connected');
+                    conn.addEventListener('message', e => {
+                        console.log('received message: ')
+                        console.dir(e);
+                    })
+                    conn.onmessage = (e) => console.log
+                });
+                conn.addEventListener('error', (e) =>{
+                    console.log('see error! ', e)
+                })
+
+
+            }
+
+            window.addEventListener('load', e => {
+                console.log('loaded site, starting sse')
+                sse()
+            })
+            console.log('hi!')
+
+    </script>
+</body>
+</html>
