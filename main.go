@@ -53,8 +53,7 @@ func main() {
 
 	router.File("/", "./index.html")
 
-	router.GET("/sse", func(c echo.Context) error {
-
+	router.GET("/stats", func(c echo.Context) error {
 		var resp = c.Response()
 		var headers = resp.Header()
 
@@ -62,8 +61,17 @@ func main() {
 		headers.Add("Cache-Control", "no-cache")
 		headers.Add("Connection", "Keep-Alive")
 
+		msgs := make(chan string)
+
+		go dockerStat(func(text string) {
+			log.Printf("pushing new message")
+			msgs <- text
+		})
+
 		for {
-			w, err := resp.Write([]byte(getSseStroging("hi!")))
+			log.Printf("waiting for next message...")
+			next := <-msgs
+			w, err := resp.Write([]byte(getSseStroging(next)))
 			resp.Flush()
 			if err != nil {
 				log.Printf("error! [%s]", err.Error())
