@@ -10,7 +10,7 @@
 
             const sse = () => {
                 console.log('starting sse');
-                const conn = new EventSource("http://localhost:9000/stats");
+                const conn = new EventSource("http://localhost:8090/app/logs");
                 conn.addEventListener('open', () => {
                     console.log('see connected');
                     conn.addEventListener('message', e => {

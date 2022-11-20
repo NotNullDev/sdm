@@ -1,8 +1,14 @@
 package main
 
 import (
-	"bufio"
-	"github.com/labstack/echo/v4"
+	"github.com/docker/docker/client"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
+	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/apis"
+	"github.com/pocketbase/pocketbase/core"
+	"github.con/notnulldev/sdm/docker"
+	"github.con/notnulldev/sdm/routes"
 	"log"
 	"os"
 	"os/exec"
@@ -25,64 +31,81 @@ func dockerPs() {
 	print("SUCCESS: ")
 }
 
-type dockerStatCallback func(text string)
-
-func dockerStat(callback dockerStatCallback) {
-	cmd := exec.Command("docker", "stats")
-
-	out, _ := cmd.StdoutPipe()
-
-	cmd.Start()
-
-	scanner := bufio.NewScanner(out)
-	scanner.Split(bufio.ScanLines)
-
-	for scanner.Scan() {
-		newLine := scanner.Text()
-		callback(newLine)
-	}
-
-	cmd.Wait()
-
-}
-func getSseStroging(data string) string {
+func getSseString(data string) string {
 	return "data: " + data + "\n\n"
 }
-func main() {
-	router := echo.New()
 
-	router.File("/", "./index.html")
+type LogsFilters struct {
+	ContainerName string `json:"containerName"`
+}
 
-	router.GET("/stats", func(c echo.Context) error {
-		var resp = c.Response()
-		var headers = resp.Header()
+func getDockerStats(c echo.Context, containerName string) {
+	exec.Command("docker", "logs", "")
+}
 
-		headers.Add("Content-Type", "text/event-stream")
-		headers.Add("Cache-Control", "no-cache")
-		headers.Add("Connection", "Keep-Alive")
+func getStats(c echo.Context) error {
+	var resp = c.Response()
+	var headers = resp.Header()
 
-		msgs := make(chan string)
+	headers.Add("Content-Type", "text/event-stream")
+	headers.Add("Cache-Control", "no-cache")
+	headers.Add("Connection", "Keep-Alive")
 
-		go dockerStat(func(text string) {
-			log.Printf("pushing new message")
-			msgs <- text
-		})
+	msgs := make(chan string)
 
-		for {
-			log.Printf("waiting for next message...")
-			next := <-msgs
-			w, err := resp.Write([]byte(getSseStroging(next)))
-			resp.Flush()
-			if err != nil {
-				log.Printf("error! [%s]", err.Error())
-			} else {
-				log.Printf("Successfully sent %v bytes.", w)
-			}
-			time.Sleep(time.Second * 2)
-		}
-
+	go docker.DockerStat(func(text string) {
+		log.Printf("pushing new message")
+		msgs <- text
 	})
 
-	router.Start(":9000")
+	for {
+		log.Printf("waiting for next message...")
+		next := <-msgs
+		w, err := resp.Write([]byte(getSseString(next)))
+		resp.Flush()
+		if err != nil {
+			log.Printf("error! [%s]", err.Error())
+		} else {
+			log.Printf("Successfully sent %v bytes.", w)
+		}
+		time.Sleep(time.Second * 2)
+	}
 
+	return nil
+}
+
+func main() {
+	app := pocketbase.New()
+
+	dockerCli, err := client.NewClientWithOpts(client.FromEnv)
+	appContext := routes.AdminContext{
+		app,
+		dockerCli,
+	}
+
+	if err != nil {
+		log.Panicf("Could not create docker client, error: [%s]", err.Error())
+	}
+
+	appContext.Pb.OnBeforeServe().Add(func(e *core.ServeEvent) error {
+		router := e.Router
+		g := router.Group("/app")
+
+		router.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+			AllowOrigins: []string{"*"},
+			AllowHeaders: []string{"*"},
+		}))
+
+		router.GET("/*", apis.StaticDirectoryHandler(os.DirFS("./public"), true))
+
+		g.GET("/logs", appContext.GetLogs)
+		g.GET("/containers", appContext.GetContainers)
+		g.GET("/containersFull", appContext.GetContainersFull)
+		g.GET("/composes", appContext.GetDockerComposes)
+
+		//router.GET("/stats", getStats)
+		return nil
+	})
+
+	app.Start()
 }
