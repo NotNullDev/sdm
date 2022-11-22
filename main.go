@@ -102,6 +102,7 @@ func main() {
 		g.GET("/containers", appContext.GetContainers)
 		g.GET("/containersFull", appContext.GetContainersFull)
 		g.GET("/composes", appContext.GetDockerComposes)
+		g.GET("/logsNew", appContext.GetContainerLogs)
 
 		//router.GET("/stats", getStats)
 		return nil

@@ -9,6 +9,8 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/models"
 	"github.con/notnulldev/sdm/docker"
+	"io"
+	"strings"
 )
 
 type AdminContext struct {
@@ -117,6 +119,99 @@ func (ctx *AdminContext) GetDockerComposes(c echo.Context) error {
 	}
 
 	err = c.JSON(200, composes)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+type ContainerLogsRequest struct {
+	ContainerNames []string `json:"containerNames"`
+	ComposesNames  []string `json:"composesNames"`
+}
+
+func (ctx *AdminContext) GetContainerLogs(c echo.Context) error {
+	var req = new(ContainerLogsRequest)
+	err := c.Bind(req)
+
+	if err != nil {
+		return err
+	}
+
+	var requestedContainers []types.Container
+	containers, err := ctx.DockerCli.ContainerList(context.Background(), types.ContainerListOptions{})
+
+main:
+	for _, container := range containers {
+		labels := container.Labels
+
+		for _, name := range container.Names {
+			for _, reqName := range req.ContainerNames {
+				if strings.Contains(name, reqName) {
+					requestedContainers = append(requestedContainers, container)
+					continue main
+				}
+			}
+		}
+
+		for key, val := range labels {
+			if key == "com.docker.compose.project" {
+				for _, compose := range req.ComposesNames {
+					if compose == val {
+						requestedContainers = append(requestedContainers, container)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	if err != nil {
+		return err
+	}
+
+	var allLogsCombined = make(map[string][]string)
+
+	for _, c := range requestedContainers {
+		if len(c.Names) == 0 {
+			continue
+		}
+
+		var name = c.Names[0]
+
+		logs, err := ctx.DockerCli.ContainerLogs(context.Background(), name, types.ContainerLogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Since:      "",
+			Until:      "",
+			Timestamps: true,
+			Follow:     false,
+			Tail:       "",
+			Details:    true,
+		})
+
+		logsContent, err := io.ReadAll(logs)
+
+		if err != nil {
+			return err
+		}
+
+		var logsSplitIntoLines []string
+
+		for _, line := range strings.Split(string(logsContent), "\n") {
+			logsSplitIntoLines = append(logsSplitIntoLines, line)
+		}
+
+		name = name[1:]
+
+		allLogsCombined[name] = logsSplitIntoLines
+
+		if err != nil {
+			return err
+		}
+	}
+
+	err = c.JSON(200, allLogsCombined)
 	if err != nil {
 		return err
 	}
